@@ -1,0 +1,268 @@
+---
+title: "Swiftkey Data Analysis"
+author: "Nithya"
+output: html_document
+---
+
+#Natural Language Processing for Swiftkey - Milestone Report
+
+&nbsp;
+
+##Executive Summary
+
+In this document we analyze a set of text documents from 3 different sources - Blogs, Tweets and News, in order to identify a few keys statistics with respect to usage of Words and N-grams (combination of N number of words)
+This is an important precursor to our attempt of building a model that would predict what a person would type next after having typed a certain word. The knowledge and insights we gain here would be applied into building and validating that model. 
+Now let us get startded with our preliminary analysis
+
+```{r, message=FALSE, warning=FALSE}
+
+library(tm)
+library(RWeka)
+library(reshape2)
+library(ggplot2)
+library(wordcloud)
+library(knitr)
+library(quanteda)
+
+```
+
+&nbsp;
+
+##Data Summary and Lexical Variety
+
+We first need to create a Corpus which would be our source. We consider the below while creating the corpus - 
+1. As we see from the below analysis, the twitter data has a typical vocabulary which is quite innovative (with short forms like lol, brb, btw) and consists of many non-english words / slangs. Therefore, that may not for a good source for our analysis.
+2. Due to performance constraints, we would take a random sample of 10% Blogs and News data.
+
+Below is the summary of data that we have read from the sources. We will also see how much variety is in the language used in each data source - Blogs, News and Tweets. These are inherent characteristics of the data sources.
+
+```{r, message=FALSE, warning=FALSE}
+
+data_blogs_all <- readLines("C:/Users/nithsubr/Documents/Swiftkey/en_US.blogs.txt")
+data_news_all <- readLines("C:/Users/nithsubr/Documents/Swiftkey/en_US.news.txt")
+data_twitter_all <- readLines("C:/Users/nithsubr/Documents/Swiftkey/en_US.twitter.txt")
+
+data_blogs_all <- tolower(data_blogs_all)
+blogWords <- unlist(strsplit(data_blogs_all,split=" ")) 
+
+data_news_all <- tolower(data_news_all)
+newsWords <- unlist(strsplit(data_news_all,split=" ")) 
+
+data_twitter_all <- tolower(data_twitter_all)
+twitterWords <- unlist(strsplit(data_twitter_all,split=" ")) 
+
+
+stat_all <- data.frame(Sources = c("Blogs", "News", "Twitter"), SentenceCount = c(length(data_blogs_all), length(data_news_all), length(data_twitter_all)), WordCount = c(length(blogWords), length(newsWords), length(twitterWords)), Uniquewords = c(length(unique(blogWords)), length(unique(newsWords)), length(unique(twitterWords))))
+
+stat_all$LexicalVariety <- ifelse( stat_all$WordCount > 0, (stat_all$Uniquewords / stat_all$WordCount), 0)
+stat_all$WordsperSentence <- ifelse( stat_all$SentenceCount > 0, (stat_all$WordCount / stat_all$SentenceCount), 0)
+
+kable(stat_all)  
+
+```
+
+In the above table, Lexical Variety is calculated as the ratio of the number of discrete words over the total number of words. As evident, News have higher Lexical variety (0.067) or wider vocabulary compared to Tweets / Blogs.
+Also Tweets use much lesser number of words per sentence compared to News / Blogs.
+All of these go well with our intution.
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(334433)
+
+data_blogs <- sample(data_blogs_all, size = length(data_blogs_all) * 0.1, replace = FALSE)
+data_news <- sample(data_news_all, size = length(data_news_all) * 0.1, replace = FALSE)
+data <- sample(c(data_blogs, data_news))
+data <- gsub(" the ", "", data, ignore.case = TRUE)
+data <- gsub(" i ", "", data, ignore.case = TRUE)
+
+docs <- VCorpus(VectorSource(data))
+
+```
+
+&nbsp;
+
+##Pre-Processing
+
+We need to pre-process the corpus data. Below are the modifications that need to be done:
+
+###Removing punctuation:
+
+```{r, message=FALSE, warning=FALSE}
+
+docs <- tm_map(docs, removePunctuation)
+
+```
+
+###Removing numbers:
+
+```{r, message=FALSE, warning=FALSE}
+
+docs <- tm_map(docs, removeNumbers)
+
+```
+
+###Removing word endings like ing, es etc.
+
+```{r, message=FALSE, warning=FALSE}
+
+docs <- tm_map(docs, stemDocument)
+
+```
+
+###Removing white spaces
+
+```{r, message=FALSE, warning=FALSE}
+
+docs <- tm_map(docs, stripWhitespace)  
+
+```
+
+###Removing "stopwords" that are not significant
+
+```{r, message=FALSE, warning=FALSE}
+
+docs <- tm_map(docs, removeWords, c("i", stopwords("english")))
+
+```
+
+&nbsp;
+
+##Detailed Analysis
+
+Now that we have preprocessed the data, let us do some deep dive into the data to derive some valuable insights. 
+
+
+###100 Most frequently occuring words
+
+Let us now plot a fancy colourful Word Cloud map to indicate distinctly the most frequently occuring words
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+dtm1 <- DocumentTermMatrix(docs)
+
+terms <- findFreqTerms(dtm1, lowfreq=1000)
+freq <- inspect(dtm1[, terms])
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+df <- colSums(freq)
+wordcloud(names(df), df, scale=c(5, .1), colors=brewer.pal(6, "Dark2"), max.words = 100)
+
+```
+
+&nbsp;
+
+##Frequency Distributions
+
+Below is the frequency distribution of the words as they appear in our Corpus
+
+**Top most single words by their frequency of occurrance**
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+terms1 <- findFreqTerms(dtm1, lowfreq=2000)
+freq1 <- inspect(dtm1[, terms1])
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+df1 <- melt(colSums(freq1))
+df1$grams <- rownames(df1)
+
+df1 <- df1[order(-df1$value), ]
+
+g1 <- ggplot(data = df1) + geom_bar(aes(x = reorder(grams, -value), y = value), stat = "identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Words") + ylab("Frequency")
+
+print(g1)
+
+```
+
+&nbsp;
+
+**Top most double word phrases by their frequency of occurrance**
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+dtm2 <- DocumentTermMatrix(docs, control = list(tokenize = BigramTokenizer))
+
+terms2 <- findFreqTerms(dtm2, lowfreq=100)
+freq2 <- inspect(dtm2[, terms2])
+
+```
+
+```{r, message=FALSE, warning=FALSE, fig.height=10}
+
+df2 <- melt(colSums(freq2))
+df2$grams <- rownames(df2)
+
+df2 <- df2[order(-df2$value), ]
+
+g2 <- ggplot(data = df2) + geom_bar(aes(x = reorder(grams, value), y = value), stat = "identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Words") + ylab("Frequency") + coord_flip()
+
+print(g2)
+
+```
+
+&nbsp;
+
+**Top most tripple word phrases by their frequency of occurrance**
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+dtm3 <- DocumentTermMatrix(docs, control = list(tokenize = TrigramTokenizer))
+
+terms3 <- findFreqTerms(dtm3, lowfreq=20)
+freq3 <- inspect(dtm3[, terms3])
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+df3 <- melt(colSums(freq3))
+df3$grams <- rownames(df3)
+
+df3 <- df3[order(df3$value), ]
+
+g3 <- ggplot(data = df3) + geom_bar(aes(x = reorder(grams, value), y = value), stat = "identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Words") + ylab("Frequency") + coord_flip()
+
+print(g3)
+
+```
+
+&nbsp;
+
+##Clustering Analysis
+
+Let us now try and cluster the most frequently occuring words
+
+```{r, message=FALSE, warning=FALSE}
+
+library(cluster)   
+d <- dist(df1, method="euclidian")  
+fit <- hclust(d=d, method="ward.D")
+
+plot.new()
+plot(fit, hang=-1)
+groups <- cutree(fit, k=5)   
+rect.hclust(fit, k=5, border="red") 
+
+```
+
+The above clustering would give us good insight into the affinity between words when we start the model creation, training and selection process.
+
+&nbsp;
+
+##Conclusion and Next Steps
+
+We conclude the preliminary Data Analysis here with the insights shared above. 
+We now generally know about the Data Sources (Word Count, Sentence Count, Lexical variety, Average words per sentence)
+We also have found the most frequently occuring words, Bi-grams and Tri-grams.
+We also tried to cluster the most commonly occuring words and would need to verify the model later with these findings. 
+
+As next steps, we would be creating, training, verifying and selecting models that would predict the next word after a particular word is entered by a person.
+
+Hope this Analysis was insightful and that it answered some of the basic questions related to the datasets.
